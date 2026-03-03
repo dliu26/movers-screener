@@ -1,8 +1,6 @@
 {
   "crons": [
-    {
-      "path": "/api/cron/daily-movers",
-      "schedule": "30 14 * * 1-5"
-    }
+    { "path": "/api/cron/market-close", "schedule": "10 21 * * 1-5" },
+    { "path": "/api/cron/after-hours",  "schedule": "40 21 * * 1-5" }
   ]
 }

@@ -55,7 +55,8 @@ function buildSection(title: string, cards: MoverCard[], isGainer: boolean): str
 export function buildEmailHtml(
   gainers: MoverCard[],
   losers: MoverCard[],
-  asOf: string
+  asOf: string,
+  title: string,
 ): string {
   const asOfFormatted = new Date(asOf).toLocaleString("en-US", {
     timeZone: "America/New_York",
@@ -72,7 +73,7 @@ export function buildEmailHtml(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Daily Movers</title>
+  <title>${title}</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0"
@@ -87,7 +88,7 @@ export function buildEmailHtml(
           <tr>
             <td style="padding:20px 24px;background:#111827;color:#f9fafb;">
               <p style="margin:0;font-size:20px;font-weight:700;letter-spacing:0.02em;">
-                Daily Movers
+                ${title}
               </p>
               <p style="margin:4px 0 0;font-size:12px;color:#9ca3af;">
                 As of ${asOfFormatted}
@@ -126,8 +127,10 @@ export function buildEmailHtml(
 export async function sendViaResend(
   gainers: MoverCard[],
   losers: MoverCard[],
-  asOf: string
+  asOf: string,
+  subject: string,
 ): Promise<{ ok: boolean; error?: string }> {
+  const title = subject.split(" — ")[0];
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -141,10 +144,8 @@ export async function sendViaResend(
           .split(",")
           .map((e) => e.trim())
           .filter(Boolean),
-        subject: `Daily Movers — ${new Date().toLocaleDateString("en-US", {
-          timeZone: "America/New_York",
-        })}`,
-        html: buildEmailHtml(gainers, losers, asOf),
+        subject,
+        html: buildEmailHtml(gainers, losers, asOf, title),
       }),
     });
 
