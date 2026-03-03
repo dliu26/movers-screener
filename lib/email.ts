@@ -137,7 +137,10 @@ export async function sendViaResend(
       },
       body: JSON.stringify({
         from: "Movers Screener <noreply@resend.dev>",
-        to: [process.env.DAILY_EMAIL_TO],
+        to: (process.env.DAILY_EMAIL_TO ?? "")
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean),
         subject: `Daily Movers — ${new Date().toLocaleDateString("en-US", {
           timeZone: "America/New_York",
         })}`,
