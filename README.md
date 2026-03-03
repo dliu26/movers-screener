@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# movers-screener
 
-## Getting Started
+Real-time Top Gainers and Top Losers screener for US stocks, built with Next.js 14 (App Router) and Tailwind CSS, powered by [Polygon.io](https://polygon.io).
 
-First, run the development server:
+## Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js >= 18
+- A [Polygon.io](https://polygon.io) API key (free tier works; see notes below)
+
+## Setup
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Create `.env.local` in the project root:
+   ```
+   POLYGON_API_KEY=your_polygon_api_key_here
+   ```
+
+3. Start the development server:
+   ```bash
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000).
+
+4. Build for production:
+   ```bash
+   npm run build && npm start
+   ```
+
+## Usage
+
+- **Cap** dropdown — filter by market cap bucket (All / Nano / Micro / Small / Mid / Large / Mega)
+- **Limit** dropdown — show 50, 100, or 200 results per column
+- **Refresh** button — manually re-fetch the latest data
+- **As of** timestamp — shows when the data was fetched; useful for detecting staleness on weekends/after-hours
+
+## Architecture Notes
+
+### In-memory reference cache
+
+`lib/marketCapCache.ts` uses a Node.js in-process `Map` to cache reference ticker data (company names, market cap) with a 12-hour TTL.
+
+**This cache does not persist across serverless function invocations.** On Vercel and similar platforms, each cold-start worker begins with an empty cache, and multiple workers will not share state.
+
+For production deployments, replace the in-memory cache with a persistent store:
+- [Vercel KV](https://vercel.com/docs/storage/vercel-kv) (Redis-compatible)
+- [Upstash Redis](https://upstash.com)
+- Any Redis instance accessible from your deployment
+
+### Market cap data and bucket filtering
+
+Polygon's `/v3/reference/tickers` list endpoint includes `market_cap` on **Business/Launchpad tier** plans. On the **free tier**, this field is absent, so market cap will be `null` for all tickers.
+
+- **All Caps** bucket always works correctly regardless of tier (includes tickers with unknown market cap)
+- **Specific buckets** (Nano, Micro, etc.) require market cap data and will return empty results on the free tier
+- A warning is displayed in the UI when market cap coverage falls below 70%
+
+### Snapshot coverage
+
+`/v2/snapshot/locale/us/markets/stocks/tickers` may omit very illiquid tickers that haven't traded recently. Nano/micro-cap stocks are most likely to be missing.
+
+### Rate limiting
+
+The fetch wrapper retries up to twice on HTTP 429/503/504 responses (300ms then 900ms delay). A warning is surfaced in the UI when retries occur.
+
+## File Structure
+
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+app/
+  page.tsx              # "use client" — main screener UI
+  layout.tsx            # root layout
+  globals.css
+  api/movers/
+    route.ts            # GET /api/movers?bucket=...&limit=...
+lib/
+  polygon.ts            # fetch wrapper + retry/backoff + typed interfaces
+  marketCapCache.ts     # in-memory TTL cache for ticker name/market cap
+```
