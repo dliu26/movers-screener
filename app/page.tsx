@@ -88,7 +88,7 @@ function MoverColumn({
   const headerColor = isGainer ? "text-green-400" : "text-red-400";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex w-full flex-col md:min-h-0 md:flex-1">
       <h2 className={`mb-3 text-base font-bold tracking-tight ${headerColor}`}>
         {title}
         {!loading && cards.length > 0 && (
@@ -98,7 +98,7 @@ function MoverColumn({
         )}
       </h2>
 
-      <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+      <div className="overflow-y-auto space-y-2 pr-1 md:h-[calc(100vh-200px)]">
         {loading ? (
           Array.from({ length: 10 }).map((_, i) => (
             <div key={i} className="h-16 animate-pulse rounded-lg bg-gray-800" />
@@ -166,7 +166,7 @@ export default function MoversScreenerPage() {
     : null;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden p-4">
+    <div className="flex flex-col p-4 md:h-screen md:overflow-hidden">
       {/* ── Header ── */}
       <header className="mb-3 flex flex-wrap items-center gap-3">
         <h1 className="mr-2 text-xl font-bold tracking-tight text-white">
@@ -241,7 +241,7 @@ export default function MoversScreenerPage() {
       )}
 
       {/* ── Two-Column Layout ── */}
-      <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
+      <div className="flex flex-col gap-4 md:flex-row md:min-h-0 md:flex-1 md:overflow-hidden">
         <MoverColumn
           title="Top Gainers"
           cards={data?.gainers ?? []}
