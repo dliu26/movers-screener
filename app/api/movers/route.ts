@@ -2,20 +2,18 @@
 // TODO: if deploying publicly, consider adding auth/rate limiting to /api/movers
 
 import { NextRequest, NextResponse } from "next/server";
-import { fetchSnapshotAllTickers, type PolygonTickerSnapshot } from "@/lib/polygon";
+import { fetchSnapshotAllTickers } from "@/lib/polygon";
 import { enrichTickers, getCacheEntryOrEmpty } from "@/lib/marketCapCache";
+import {
+  MoverCard,
+  ScoredTicker,
+  CANDIDATE_COUNT,
+  COMMON_STOCK_RE,
+  derivePrice,
+  formatMarketCap,
+} from "@/lib/moversCore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface MoverCard {
-  ticker: string;
-  name: string | null;
-  price: number;
-  changePct: number;
-  changeAbs: number;
-  marketCap: number | null;
-  marketCapFormatted: string;
-}
 
 export interface MoversResponse {
   asOf: string;
@@ -34,21 +32,11 @@ export interface MoversErrorResponse {
 
 type MarketCapBucket = "all" | "nano" | "micro" | "small" | "mid" | "large" | "mega";
 
-// Internal type for a scored snapshot row before cache join
-interface ScoredTicker {
-  ticker: string;
-  price: number;
-  changePct: number;
-  changeAbs: number;
-}
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ALLOWED_LIMITS = [50, 100, 200] as const;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
-// How many candidates to pre-fetch market cap data for per side
-const CANDIDATE_COUNT = 200;
 
 const VALID_BUCKETS = new Set<string>([
   "all", "nano", "micro", "small", "mid", "large", "mega",
@@ -82,28 +70,11 @@ function validateBucket(raw: string | null): MarketCapBucket {
   return "all";
 }
 
-/**
- * Derive price using the fallback chain:
- * day.c → lastTrade.p → min.c → prevDay.c
- */
-function derivePrice(snap: PolygonTickerSnapshot): number | null {
-  if (snap.day?.c != null)       return snap.day.c;
-  if (snap.lastTrade?.p != null) return snap.lastTrade.p;
-  if (snap.min?.c != null)       return snap.min.c;
-  if (snap.prevDay?.c != null)   return snap.prevDay.c;
-  return null;
-}
-
-/**
- * Format market cap to human-readable string.
- * e.g. 2_100_000_000 → "$2.10B"
- */
-function formatMarketCap(marketCap: number | null): string {
-  if (marketCap === null) return "N/A";
-  if (marketCap >= 1_000_000_000_000) return `$${(marketCap / 1_000_000_000_000).toFixed(2)}T`;
-  if (marketCap >= 1_000_000_000)     return `$${(marketCap / 1_000_000_000).toFixed(2)}B`;
-  if (marketCap >= 1_000_000)         return `$${(marketCap / 1_000_000).toFixed(2)}M`;
-  return `$${marketCap.toLocaleString()}`;
+function validateMinCap(raw: string | null): number {
+  if (!raw) return 0;
+  const parsed = parseFloat(raw);
+  if (isNaN(parsed)) return 0;
+  return Math.max(0, parsed);
 }
 
 /**
@@ -141,6 +112,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { searchParams } = request.nextUrl;
     const bucket = validateBucket(searchParams.get("bucket"));
     const limit = validateLimit(searchParams.get("limit"));
+    const minCap = validateMinCap(searchParams.get("minCap"));
 
     // 1. Fetch snapshot data
     const { data: snapshotData, retriedDueToRateLimit: snapshotRetried } =
@@ -165,11 +137,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // 3. Score every ticker: compute price + changePct, discard junk rows.
     // NOTE: snapshot-all-tickers may omit very illiquid tickers that haven't
     // traded recently (so nanos/micros might be missing from results).
-    //
-    // /^[A-Z]{1,5}$/ accepts only plain uppercase-letter tickers, which
-    // filters out warrants (W suffix), rights (R suffix), units (dot),
-    // and preferred shares (letter/digit suffixes) in one pass.
-    const COMMON_STOCK_RE = /^[A-Z]{1,5}$/;
     const scored: ScoredTicker[] = [];
 
     for (const snap of tickers) {
@@ -232,14 +199,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 7. Apply bucket filter and slice to limit
+    // 7. Apply bucket + minCap filters and slice to limit
     const gainers = candidateGainers
-      .filter((c) => matchesBucket(getCacheEntryOrEmpty(c.ticker).marketCap, bucket))
+      .filter((c) => {
+        const { marketCap } = getCacheEntryOrEmpty(c.ticker);
+        if (!matchesBucket(marketCap, bucket)) return false;
+        if (minCap > 0 && (marketCap === null || marketCap < minCap)) return false;
+        return true;
+      })
       .slice(0, limit)
       .map(buildMoverCard);
 
     const losers = candidateLosers
-      .filter((c) => matchesBucket(getCacheEntryOrEmpty(c.ticker).marketCap, bucket))
+      .filter((c) => {
+        const { marketCap } = getCacheEntryOrEmpty(c.ticker);
+        if (!matchesBucket(marketCap, bucket)) return false;
+        if (minCap > 0 && (marketCap === null || marketCap < minCap)) return false;
+        return true;
+      })
       .slice(0, limit)
       .map(buildMoverCard);
 

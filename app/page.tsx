@@ -37,6 +37,15 @@ const BUCKET_LABELS: Record<MarketCapBucket, string> = {
 
 const LIMIT_OPTIONS = [50, 100, 200] as const;
 
+const MIN_CAP_OPTIONS: { label: string; value: number }[] = [
+  { label: "None",  value: 0 },
+  { label: "100M",  value: 100_000_000 },
+  { label: "500M",  value: 500_000_000 },
+  { label: "1B",    value: 1_000_000_000 },
+  { label: "5B",    value: 5_000_000_000 },
+  { label: "10B",   value: 10_000_000_000 },
+];
+
 // ─── MoverCardItem ────────────────────────────────────────────────────────────
 
 function MoverCardItem({ card, isGainer }: { card: MoverCard; isGainer: boolean }) {
@@ -122,6 +131,7 @@ function MoverColumn({
 export default function MoversScreenerPage() {
   const [bucket, setBucket] = useState<MarketCapBucket>("all");
   const [limit, setLimit] = useState<number>(50);
+  const [minCap, setMinCap] = useState<number>(0);
   const [data, setData] = useState<MoversResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -132,6 +142,7 @@ export default function MoversScreenerPage() {
 
     try {
       const params = new URLSearchParams({ bucket, limit: String(limit) });
+      if (minCap > 0) params.set("minCap", String(minCap));
       const response = await fetch(`/api/movers?${params.toString()}`);
       const json = await response.json();
 
@@ -147,7 +158,7 @@ export default function MoversScreenerPage() {
     } finally {
       setLoading(false);
     }
-  }, [bucket, limit]);
+  }, [bucket, limit, minCap]);
 
   // Fetch on mount and whenever controls change
   useEffect(() => {
@@ -200,6 +211,22 @@ export default function MoversScreenerPage() {
             {LIMIT_OPTIONS.map((l) => (
               <option key={l} value={l}>
                 {l}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* Min Cap */}
+        <label className="flex items-center gap-1.5 text-sm text-gray-400">
+          <span>Min Cap:</span>
+          <select
+            value={minCap}
+            onChange={(e) => setMinCap(Number(e.target.value))}
+            className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            {MIN_CAP_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
               </option>
             ))}
           </select>
