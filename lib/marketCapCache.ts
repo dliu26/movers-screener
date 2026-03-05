@@ -77,6 +77,20 @@ loadCacheFromFile();
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Returns up to `n` ticker symbols sorted by market cap descending.
+ * Skips entries with null market cap or an expired TTL.
+ */
+export function getTopTickersByMarketCap(n: number): string[] {
+  const entries: { ticker: string; marketCap: number }[] = [];
+  for (const [ticker, entry] of Array.from(cache.entries())) {
+    if (isEntryExpired(entry) || entry.marketCap === null) continue;
+    entries.push({ ticker, marketCap: entry.marketCap });
+  }
+  entries.sort((a, b) => b.marketCap - a.marketCap);
+  return entries.slice(0, n).map((e) => e.ticker);
+}
+
+/**
  * Look up a ticker. Returns null if not in cache or if the entry is expired,
  * indicating that the caller should call enrichTickers() first.
  */

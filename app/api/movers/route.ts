@@ -3,12 +3,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { fetchSnapshotAllTickers } from "@/lib/polygon";
-import { enrichTickers, getCacheEntryOrEmpty } from "@/lib/marketCapCache";
+import { enrichTickers, getCacheEntryOrEmpty, getTopTickersByMarketCap } from "@/lib/marketCapCache";
+import { enrichAggTickers, getAggCacheEntry } from "@/lib/aggCache";
 import {
   MoverCard,
   ScoredTicker,
   CANDIDATE_COUNT,
   COMMON_STOCK_RE,
+  Timeframe,
+  VALID_TIMEFRAMES,
+  getStartDate,
   derivePrice,
   formatMarketCap,
 } from "@/lib/moversCore";
@@ -19,6 +23,7 @@ export interface MoversResponse {
   asOf: string;
   bucket: string;
   limit: number;
+  timeframe: string;
   gainers: MoverCard[];
   losers: MoverCard[];
   warnings: string[];
@@ -77,6 +82,11 @@ function validateMinCap(raw: string | null): number {
   return Math.max(0, parsed);
 }
 
+function validateTimeframe(raw: string | null): Timeframe {
+  if (raw && VALID_TIMEFRAMES.has(raw)) return raw as Timeframe;
+  return "1D";
+}
+
 /**
  * Returns true if a ticker should be included given the market cap bucket.
  * "all" includes tickers with unknown (null) market cap.
@@ -102,6 +112,14 @@ function buildMoverCard(scored: ScoredTicker): MoverCard {
   };
 }
 
+/** Shared bucket + minCap filter used by both pipelines. */
+function passesFilters(ticker: string, bucket: MarketCapBucket, minCap: number): boolean {
+  const { marketCap } = getCacheEntryOrEmpty(ticker);
+  if (!matchesBucket(marketCap, bucket)) return false;
+  if (minCap > 0 && (marketCap === null || marketCap < minCap)) return false;
+  return true;
+}
+
 // ─── Route Handler ────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -113,6 +131,65 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const bucket = validateBucket(searchParams.get("bucket"));
     const limit = validateLimit(searchParams.get("limit"));
     const minCap = validateMinCap(searchParams.get("minCap"));
+    const timeframe = validateTimeframe(searchParams.get("timeframe"));
+
+    // ── Historical pipeline (1W / 1M / 6M / 1Y) ──────────────────────────────
+    if (timeframe !== "1D") {
+      const universe = getTopTickersByMarketCap(500);
+
+      if (universe.length < 50) {
+        warnings.push(
+          "Market cap cache is empty or too sparse for historical view. " +
+          "Load the 1D view first to warm the cache, then retry."
+        );
+      }
+
+      const startDate = getStartDate(timeframe);
+      const endDate = new Date().toISOString().slice(0, 10);
+
+      const { retriedDueToRateLimit: aggRetried } = await enrichAggTickers(
+        universe, timeframe, startDate, endDate
+      );
+      if (aggRetried) {
+        warnings.push(
+          "Rate limit hit while fetching historical data; some tickers may be missing."
+        );
+      }
+
+      // Score: use agg-derived prices
+      const scored: ScoredTicker[] = [];
+      for (const ticker of universe) {
+        const entry = getAggCacheEntry(ticker, timeframe);
+        if (!entry) continue;
+
+        const { startClose, endClose } = entry;
+        if (endClose < 0.10) continue;
+
+        const changeAbs = endClose - startClose;
+        const changePct = (changeAbs / startClose) * 100;
+        if (changePct <= -99) continue;
+
+        scored.push({ ticker, price: endClose, changePct, changeAbs });
+      }
+
+      const candidateGainers = [...scored].sort((a, b) => b.changePct - a.changePct);
+      const candidateLosers  = [...scored].sort((a, b) => a.changePct - b.changePct);
+
+      const gainers = candidateGainers
+        .filter((c) => passesFilters(c.ticker, bucket, minCap))
+        .slice(0, limit)
+        .map(buildMoverCard);
+
+      const losers = candidateLosers
+        .filter((c) => passesFilters(c.ticker, bucket, minCap))
+        .slice(0, limit)
+        .map(buildMoverCard);
+
+      const body: MoversResponse = { asOf, bucket, limit, timeframe, gainers, losers, warnings };
+      return NextResponse.json(body, { status: 200 });
+    }
+
+    // ── 1D pipeline (snapshot) ────────────────────────────────────────────────
 
     // 1. Fetch snapshot data
     const { data: snapshotData, retriedDueToRateLimit: snapshotRetried } =
@@ -201,26 +278,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // 7. Apply bucket + minCap filters and slice to limit
     const gainers = candidateGainers
-      .filter((c) => {
-        const { marketCap } = getCacheEntryOrEmpty(c.ticker);
-        if (!matchesBucket(marketCap, bucket)) return false;
-        if (minCap > 0 && (marketCap === null || marketCap < minCap)) return false;
-        return true;
-      })
+      .filter((c) => passesFilters(c.ticker, bucket, minCap))
       .slice(0, limit)
       .map(buildMoverCard);
 
     const losers = candidateLosers
-      .filter((c) => {
-        const { marketCap } = getCacheEntryOrEmpty(c.ticker);
-        if (!matchesBucket(marketCap, bucket)) return false;
-        if (minCap > 0 && (marketCap === null || marketCap < minCap)) return false;
-        return true;
-      })
+      .filter((c) => passesFilters(c.ticker, bucket, minCap))
       .slice(0, limit)
       .map(buildMoverCard);
 
-    const body: MoversResponse = { asOf, bucket, limit, gainers, losers, warnings };
+    const body: MoversResponse = { asOf, bucket, limit, timeframe, gainers, losers, warnings };
     return NextResponse.json(body, { status: 200 });
 
   } catch (err) {

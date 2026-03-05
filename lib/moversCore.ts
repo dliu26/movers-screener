@@ -3,6 +3,21 @@
 
 import type { PolygonTickerSnapshot } from "@/lib/polygon";
 
+// ─── Timeframe ────────────────────────────────────────────────────────────────
+
+export type Timeframe = "1D" | "1W" | "1M" | "6M" | "1Y";
+export const VALID_TIMEFRAMES = new Set<string>(["1D", "1W", "1M", "6M", "1Y"]);
+
+/** Returns the YYYY-MM-DD start date for the given timeframe relative to today. */
+export function getStartDate(timeframe: Timeframe): string {
+  const d = new Date();
+  if (timeframe === "1W") d.setDate(d.getDate() - 7);
+  else if (timeframe === "1M") d.setMonth(d.getMonth() - 1);
+  else if (timeframe === "6M") d.setMonth(d.getMonth() - 6);
+  else if (timeframe === "1Y") d.setFullYear(d.getFullYear() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface MoverCard {

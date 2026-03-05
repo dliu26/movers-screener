@@ -123,6 +123,24 @@ export interface PolygonSnapshotAllResponse {
   tickers: PolygonTickerSnapshot[];
 }
 
+export interface PolygonAggBar {
+  t: number;   // timestamp (ms)
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+  vw: number;
+  n: number;
+}
+
+export interface PolygonAggResponse {
+  ticker: string;
+  status: string;
+  resultsCount: number;
+  results?: PolygonAggBar[];
+}
+
 export interface PolygonTickerDetailResult {
   ticker: string;
   name: string;
@@ -151,6 +169,22 @@ export async function fetchSnapshotAllTickers(): Promise<{
   return polygonFetch<PolygonSnapshotAllResponse>(
     "/v2/snapshot/locale/us/markets/stocks/tickers",
     {}
+  );
+}
+
+/**
+ * Fetch daily aggregate bars for a ticker over a date range.
+ * GET /v2/aggs/ticker/{ticker}/range/1/day/{startDate}/{endDate}
+ * Returns up to 500 bars sorted ascending; caller takes first + last for start/end close.
+ */
+export async function fetchTickerAggRange(
+  ticker: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ data: PolygonAggResponse; retriedDueToRateLimit: boolean }> {
+  return polygonFetch<PolygonAggResponse>(
+    `/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/1/day/${startDate}/${endDate}`,
+    { adjusted: "true", sort: "asc", limit: "500" }
   );
 }
 

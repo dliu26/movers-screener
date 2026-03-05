@@ -18,12 +18,16 @@ interface MoversResponse {
   asOf: string;
   bucket: string;
   limit: number;
+  timeframe: string;
   gainers: MoverCard[];
   losers: MoverCard[];
   warnings: string[];
 }
 
+type Timeframe = "1D" | "1W" | "1M" | "6M" | "1Y";
 type MarketCapBucket = "all" | "nano" | "micro" | "small" | "mid" | "large" | "mega";
+
+const TIMEFRAME_OPTIONS: Timeframe[] = ["1D", "1W", "1M", "6M", "1Y"];
 
 const BUCKET_LABELS: Record<MarketCapBucket, string> = {
   all:   "All Caps",
@@ -129,6 +133,7 @@ function MoverColumn({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function MoversScreenerPage() {
+  const [timeframe, setTimeframe] = useState<Timeframe>("1D");
   const [bucket, setBucket] = useState<MarketCapBucket>("all");
   const [limit, setLimit] = useState<number>(50);
   const [minCap, setMinCap] = useState<number>(0);
@@ -141,7 +146,7 @@ export default function MoversScreenerPage() {
     setError(null);
 
     try {
-      const params = new URLSearchParams({ bucket, limit: String(limit) });
+      const params = new URLSearchParams({ timeframe, bucket, limit: String(limit) });
       if (minCap > 0) params.set("minCap", String(minCap));
       const response = await fetch(`/api/movers?${params.toString()}`);
       const json = await response.json();
@@ -158,22 +163,28 @@ export default function MoversScreenerPage() {
     } finally {
       setLoading(false);
     }
-  }, [bucket, limit, minCap]);
+  }, [timeframe, bucket, limit, minCap]);
 
   // Fetch on mount and whenever controls change
   useEffect(() => {
     fetchMovers();
   }, [fetchMovers]);
 
-  const asOfDisplay = data?.asOf
-    ? new Date(data.asOf).toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      })
+  const asOfLabel = data?.asOf
+    ? timeframe === "1D"
+      ? `As of: ${new Date(data.asOf).toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })}`
+      : `${timeframe} return as of ${new Date(data.asOf).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}`
     : null;
 
   return (
@@ -183,6 +194,20 @@ export default function MoversScreenerPage() {
         <h1 className="mr-2 text-xl font-bold tracking-tight text-white">
           Movers Screener
         </h1>
+
+        {/* Timeframe */}
+        <label className="flex items-center gap-1.5 text-sm text-gray-400">
+          <span>Timeframe:</span>
+          <select
+            value={timeframe}
+            onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+            className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            {TIMEFRAME_OPTIONS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </label>
 
         {/* Market Cap Bucket */}
         <label className="flex items-center gap-1.5 text-sm text-gray-400">
@@ -241,10 +266,10 @@ export default function MoversScreenerPage() {
           {loading ? "Loading…" : "Refresh"}
         </button>
 
-        {/* As of timestamp */}
-        {asOfDisplay && (
+        {/* As of / timeframe label */}
+        {asOfLabel && (
           <span className="ml-auto text-xs text-gray-500">
-            As of: {asOfDisplay}
+            {asOfLabel}
           </span>
         )}
       </header>
